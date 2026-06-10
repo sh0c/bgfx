@@ -675,6 +675,13 @@ typedef struct bgfx_internal_data_s
 {
     const bgfx_caps_t*   caps;               /** Renderer capabilities.                   */
     void*                context;            /** GL context, or D3D device.               */
+    void*                physicalDevice;     /** Vulkan only: VkPhysicalDevice.           */
+    void*                queue;              /** Vulkan only: VkQueue graphics.           */
+    uint32_t             queueFamily;        /** Vulkan only: graphics queue family index.*/
+    void*                instance;           /** Vulkan only: VkInstance.                 */
+    void*                eglDisplay;         /** GL/GLES only: EGLDisplay.               */
+    void*                getProcAddress;     /** GL/GLES: eglGetProcAddress; Vulkan: vkGetDeviceProcAddr. */
+    void*                getInstanceProcAddress; /** Vulkan only: vkGetInstanceProcAddr.  */
 
 } bgfx_internal_data_t;
 

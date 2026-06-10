@@ -624,6 +624,8 @@ WL_EGL_IMPORT
 		import();
 
 		g_internalData.context = m_context;
+		g_internalData.eglDisplay     = m_display;
+		g_internalData.getProcAddress = reinterpret_cast<void*>(eglGetProcAddress);
 	}
 
 	void GlContext::destroy()

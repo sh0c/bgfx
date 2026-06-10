@@ -392,6 +392,10 @@ VK_IMPORT_DEVICE
 			KHR_video_decode_h264,
 			KHR_video_decode_h265,
 			KHR_video_decode_av1,
+			KHR_external_memory,
+			KHR_external_memory_fd,
+			EXT_external_memory_dma_buf,
+			EXT_image_drm_format_modifier,
 
 #	if BX_PLATFORM_ANDROID
 			KHR_android_surface,
@@ -440,6 +444,10 @@ VK_IMPORT_DEVICE
 		{ "VK_KHR_video_decode_h264",               1, false, false, true,                                                          Layer::Count },
 		{ "VK_KHR_video_decode_h265",               1, false, false, true,                                                          Layer::Count },
 		{ "VK_KHR_video_decode_av1",                1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_external_memory",                 1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_external_memory_fd",              1, false, false, true,                                                          Layer::Count },
+		{ "VK_EXT_external_memory_dma_buf",         1, false, false, true,                                                          Layer::Count },
+		{ "VK_EXT_image_drm_format_modifier",       1, false, false, true,                                                          Layer::Count },
 #	if BX_PLATFORM_ANDROID
 		{ VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
 #	elif BX_PLATFORM_LINUX
@@ -2305,6 +2313,13 @@ VK_IMPORT_DEVICE
 			}
 
 			g_internalData.context = m_device;
+			g_internalData.physicalDevice         = m_physicalDevice;
+			g_internalData.queue                  = m_globalQueue;
+			g_internalData.queueFamily            = m_globalQueueFamily;
+			g_internalData.instance               = m_instance;
+			g_internalData.getProcAddress         = reinterpret_cast<void*>(vkGetDeviceProcAddr);
+			g_internalData.getInstanceProcAddress = reinterpret_cast<void*>(vkGetInstanceProcAddr);
+
 			return true;
 
 		error:
@@ -2638,13 +2653,47 @@ VK_IMPORT_DEVICE
 			bgfx::release(mem);
 		}
 
-		void overrideInternal(TextureHandle /*_handle*/, uintptr_t /*_ptr*/, uint16_t /*_layerIndex*/) override
+		void overrideInternal(TextureHandle _handle, uintptr_t _ptr, uint16_t /*_layerIndex*/) override
 		{
+			TextureVK& texture = m_textures[_handle.idx];
+
+			// Release the texture's self-owned image/memory (it was just created normally),
+			// or detach a previously-adopted external image.
+			if (0 != (texture.m_flags & BGFX_SAMPLER_INTERNAL_SHARED) )
+			{
+				m_cmd.removeExternal(_handle);
+			}
+			else if (VK_NULL_HANDLE != texture.m_textureImage)
+			{
+				release(texture.m_textureImage);
+				recycleMemory(texture.m_textureDeviceMem);
+			}
+
+			// Adopt the externally-created VkImage. The importer leaves it in
+			// SHADER_READ_ONLY_OPTIMAL, so bgfx's per-draw layout barrier is a no-op and
+			// won't discard the contents. Metadata (format, extent, aspect, mips, sampler)
+			// from the original create is preserved and reused for the image view.
+			static_assert(sizeof(texture.m_textureImage) == sizeof(_ptr), "Size must match!");
+			bx::memCopy(&texture.m_textureImage, &_ptr, sizeof(VkImage) );
+			texture.m_textureDeviceMem  = {};
+			texture.m_flags            |= BGFX_SAMPLER_INTERNAL_SHARED;
+			texture.m_currentImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			// Imported external images back opaque content (e.g. video); the source alpha
+			// is undefined/zero, so force the sampled alpha to 1 (mirrors the GL path's
+			// alpha-less DRM fourcc import).
+			texture.m_components.a = VK_COMPONENT_SWIZZLE_ONE;
+			m_cmd.addExternal(_handle);
+
+			// Drop cached image views that reference the old image.
+			m_imageViewCache.invalidateWithParent(_handle.idx);
 		}
 
-		uintptr_t getInternal(TextureHandle /*_handle*/) override
+		uintptr_t getInternal(TextureHandle _handle) override
 		{
-			return 0;
+			uintptr_t ptr = 0;
+			static_assert(sizeof(m_textures[_handle.idx].m_textureImage) == sizeof(ptr), "Size must match!");
+			bx::memCopy(&ptr, &m_textures[_handle.idx].m_textureImage, sizeof(VkImage) );
+			return ptr;
 		}
 
 		void destroyTexture(TextureHandle _handle) override

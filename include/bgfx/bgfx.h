@@ -615,6 +615,13 @@ namespace bgfx
 		const Caps* caps; //!< Renderer capabilities.
 		void* context;    //!< GL context, or D3D device.
 
+		void*    physicalDevice; //!< Vulkan only: VkPhysicalDevice (nullptr otherwise).
+		void*    queue;          //!< Vulkan only: VkQueue graphics (nullptr otherwise).
+		uint32_t queueFamily;    //!< Vulkan only: graphics queue family index (0 otherwise).
+		void*    instance;       //!< Vulkan only: VkInstance (nullptr otherwise).
+		void*    eglDisplay;     //!< GL/GLES only: EGLDisplay (nullptr otherwise).
+		void*    getProcAddress; //!< GL/GLES: eglGetProcAddress; Vulkan: vkGetDeviceProcAddr.
+		void*    getInstanceProcAddress; //!< Vulkan only: vkGetInstanceProcAddr (nullptr otherwise).
 	};
 
 	/// Platform data.
