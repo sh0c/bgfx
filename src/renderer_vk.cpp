@@ -6960,7 +6960,13 @@ VK_DESTROY
 
 		if (external)
 		{
-			s_renderVK->m_cmd.removeExternal({ uint16_t(this - s_renderVK->m_textures) });
+			if (VK_NULL_HANDLE != m_textureImage)
+			{
+				s_renderVK->m_cmd.removeExternal({ uint16_t(this - s_renderVK->m_textures) });
+				m_textureImage = VK_NULL_HANDLE;
+			}
+			m_textureDeviceMem = {};
+			m_flags &= ~uint64_t(BGFX_SAMPLER_INTERNAL_SHARED);
 		}
 		else
 		{
