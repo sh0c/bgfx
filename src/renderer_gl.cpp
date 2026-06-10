@@ -6132,39 +6132,66 @@ namespace bgfx { namespace gl
 		uint32_t width  = rect.m_width;
 		uint32_t height = rect.m_height;
 
-		if (compressed
-		&& !convert)
-		{
-			const uint32_t numBlocksX = (width + blockInfo.blockWidth - 1) / blockInfo.blockWidth;
-			rectPitch = numBlocksX * blockInfo.blockSize;
-			srcPitch  = UINT16_MAX == _pitch ? rectPitch : _pitch;
-		}
-
 		uint8_t* temp = NULL;
-		if (convert
-		||  !unpackRowLength
-		||  (compressed && UINT16_MAX != _pitch && srcPitch != rectPitch) )
-		{
-			temp = (uint8_t*)bx::alloc(g_allocator, rectPitch*height);
-		}
-		else if (unpackRowLength
-		     &&  !compressed)
-		{
-			GL_CHECK(glPixelStorei(GL_UNPACK_ROW_LENGTH, srcPitch*8/bpp) );
-		}
 
 		if (compressed
 		&& !convert)
 		{
-			const uint8_t* data = _mem->data;
+			const uint32_t blockWidth  = blockInfo.blockWidth;
+			const uint32_t blockHeight = blockInfo.blockHeight;
+			const uint32_t blockBytes  = blockInfo.blockSize;
 
-			const uint32_t numBlocksY = (height + blockInfo.blockHeight - 1) / blockInfo.blockHeight;
+			const uint32_t mipWidth  = bx::max(1u, m_width  >> _mip);
+			const uint32_t mipHeight = bx::max(1u, m_height >> _mip);
 
-			if (NULL != temp)
+			uint32_t subWidth  = width;
+			uint32_t subHeight = height;
 			{
-				bimg::imageCopy(temp, numBlocksY, srcPitch, 1, data, rectPitch);
+				const uint32_t alignW = ((width  + blockWidth  - 1) / blockWidth)  * blockWidth;
+				const uint32_t alignH = ((height + blockHeight - 1) / blockHeight) * blockHeight;
+				subWidth  = bx::min(alignW, mipWidth  - rect.m_x);
+				subHeight = bx::min(alignH, mipHeight - rect.m_y);
+			}
+
+			const uint32_t blocksPerRow   = bx::max<uint32_t>(1, (subWidth  + blockWidth  - 1) / blockWidth);
+			const uint32_t numBlockRows   = bx::max<uint32_t>(1, (subHeight + blockHeight - 1) / blockHeight);
+			const uint32_t dstPitch       = blocksPerRow * blockBytes;
+			const uint32_t compressedSize = dstPitch * numBlockRows;
+
+			if (UINT16_MAX == _pitch)
+			{
+				srcPitch = dstPitch;
+			}
+
+			const uint8_t* data = _mem->data;
+			uint32_t imageSize = compressedSize;
+
+			if (BX_ENABLED(BGFX_CONFIG_RENDERER_OPENGL) )
+			{
+				GL_CHECK(glPixelStorei(GL_UNPACK_COMPRESSED_BLOCK_SIZE,   blockBytes) );
+				GL_CHECK(glPixelStorei(GL_UNPACK_COMPRESSED_BLOCK_WIDTH,  blockWidth) );
+				GL_CHECK(glPixelStorei(GL_UNPACK_COMPRESSED_BLOCK_HEIGHT, blockHeight) );
+				GL_CHECK(glPixelStorei(GL_UNPACK_COMPRESSED_BLOCK_DEPTH,  1) );
+
+				if (srcPitch != dstPitch)
+				{
+					GL_CHECK(glPixelStorei(GL_UNPACK_ROW_LENGTH, (srcPitch / blockBytes) * blockWidth) );
+				}
+			}
+			else if (srcPitch != dstPitch)
+			{
+				temp = (uint8_t*)bx::alloc(g_allocator, compressedSize);
+				const uint8_t* src = data;
+				uint8_t* dst = temp;
+				for (uint32_t row = 0; row < numBlockRows; ++row)
+				{
+					bx::memCopy(dst, src, dstPitch);
+					dst += dstPitch;
+					src += srcPitch;
+				}
 				data = temp;
 			}
+
 			const GLenum internalFmt = (0 != (m_flags & BGFX_TEXTURE_SRGB) )
 				? s_textureFormat[m_textureFormat].m_internalFmtSrgb
 				: s_textureFormat[m_textureFormat].m_internalFmt
@@ -6174,16 +6201,35 @@ namespace bgfx { namespace gl
 				, rect.m_x
 				, rect.m_y
 				, _z
-				, rect.m_width
-				, rect.m_height
+				, subWidth
+				, subHeight
 				, _depth
 				, internalFmt
-				, rectPitch*numBlocksY
+				, imageSize
 				, data
 				) );
+
+			if (BX_ENABLED(BGFX_CONFIG_RENDERER_OPENGL) )
+			{
+				GL_CHECK(glPixelStorei(GL_UNPACK_COMPRESSED_BLOCK_SIZE,   0) );
+				GL_CHECK(glPixelStorei(GL_UNPACK_COMPRESSED_BLOCK_WIDTH,  0) );
+				GL_CHECK(glPixelStorei(GL_UNPACK_COMPRESSED_BLOCK_HEIGHT, 0) );
+				GL_CHECK(glPixelStorei(GL_UNPACK_COMPRESSED_BLOCK_DEPTH,  0) );
+				GL_CHECK(glPixelStorei(GL_UNPACK_ROW_LENGTH,              0) );
+			}
 		}
 		else
 		{
+			if (convert
+			||  !unpackRowLength)
+			{
+				temp = (uint8_t*)bx::alloc(g_allocator, rectPitch*height);
+			}
+			else if (unpackRowLength)
+			{
+				GL_CHECK(glPixelStorei(GL_UNPACK_ROW_LENGTH, srcPitch*8/bpp) );
+			}
+
 			const uint8_t* data = _mem->data;
 
 			if (convert)
@@ -6213,12 +6259,12 @@ namespace bgfx { namespace gl
 				, m_type
 				, data
 				) );
-		}
 
-		if (!convert
-		&&  unpackRowLength)
-		{
-			GL_CHECK(glPixelStorei(GL_UNPACK_ROW_LENGTH, 0) );
+			if (!convert
+			&&  unpackRowLength)
+			{
+				GL_CHECK(glPixelStorei(GL_UNPACK_ROW_LENGTH, 0) );
+			}
 		}
 
 		if (NULL != temp)
