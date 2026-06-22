@@ -1707,6 +1707,12 @@ namespace bgfx
 		m_uniformCacheFrame.sort(viewRemap, s_ctx->m_tempKeys);
 	}
 
+	bool setupThread()
+	{
+		s_threadIndex = ~BGFX_API_THREAD_MAGIC;
+		return true;
+	}
+
 	RenderFrame::Enum renderFrame(int32_t _msecs)
 	{
 		if (BX_ENABLED(BGFX_CONFIG_MULTITHREADED) )
@@ -3281,6 +3287,18 @@ namespace bgfx
 				end = true;
 				break;
 
+			case CommandBuffer::ExternalTask:
+			case CommandBuffer::ExternalTaskPost:
+				{
+					BGFX_PROFILER_SCOPE("ExternalTask", kColorResource);
+					ExternalTask task;
+					_cmdbuf.read(task);
+
+					if (NULL != task.fn)        { task.fn(task.userData); }
+					if (NULL != task.releaseFn) { task.releaseFn(task.userData, NULL); }
+				}
+				break;
+
 			case CommandBuffer::CreateIndexBuffer:
 				{
 					BGFX_PROFILER_SCOPE("CreateIndexBuffer", kColorResource);
@@ -4562,6 +4580,19 @@ namespace bgfx
 		memRef->releaseFn = _releaseFn;
 		memRef->userData  = _userData;
 		return &memRef->mem;
+	}
+
+	void postExternalTask(ExternalTaskFn _fn, void* _userData, ReleaseFn _releaseFn, ExternalTaskOrder::Enum _order)
+	{
+		BGFX_MUTEX_SCOPE(s_ctx->m_resourceApiLock);
+		ExternalTask task;
+		task.fn        = _fn;
+		task.userData  = _userData;
+		task.releaseFn = _releaseFn;
+		CommandBuffer& cmdbuf = s_ctx->getCommandBuffer(
+			  ExternalTaskOrder::Pre == _order ? CommandBuffer::ExternalTask : CommandBuffer::ExternalTaskPost
+			);
+		cmdbuf.write(task);
 	}
 
 	bool isMemoryRef(const Memory* _mem)

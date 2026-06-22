@@ -132,6 +132,7 @@ namespace bgfx
 #include <bx/handlealloc.h>
 #include <bx/hash.h>
 #include <bx/math.h>
+#include <bx/mpscqueue.h>
 #include <bx/mutex.h>
 #include <bx/os.h>
 #include <bx/readerwriter.h>
@@ -1028,6 +1029,7 @@ namespace bgfx
 			UpdateViewName,
 			InvalidateOcclusionQuery,
 			SetName,
+			ExternalTask,
 			End,
 			RendererShutdownEnd,
 			DestroyVertexLayout,
@@ -1041,6 +1043,7 @@ namespace bgfx
 			DestroyFrameBuffer,
 			DestroyUniform,
 			ReadTexture,
+			ExternalTaskPost,
 		};
 
 		void resize(uint32_t _capacity = 0)
@@ -3989,6 +3992,13 @@ namespace bgfx
 #	define BGFX_API_FUNC(_func) _func
 #endif // BGFX_CONFIG_DEBUG
 
+	struct ExternalTask
+	{
+		ExternalTaskFn fn;
+		void*        userData;
+		ReleaseFn    releaseFn;
+	};
+
 	struct Context
 	{
 		static constexpr uint32_t kAlignment = 64;
@@ -4023,6 +4033,10 @@ namespace bgfx
 		{
 			BX_TRACE("render thread start");
 			BGFX_PROFILER_SET_CURRENT_THREAD_NAME("bgfx - Render Thread");
+			if (!bgfx::setupThread())
+			{
+				return bx::kExitFailure;
+			}
 			while (RenderFrame::Exiting != bgfx::renderFrame() ) {};
 			BX_TRACE("render thread exit");
 			return bx::kExitSuccess;

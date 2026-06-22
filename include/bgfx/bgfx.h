@@ -614,6 +614,7 @@ namespace bgfx
 	{
 		const Caps* caps; //!< Renderer capabilities.
 		void* context;    //!< GL context, or D3D device.
+
 	};
 
 	/// Platform data.
@@ -2045,6 +2046,43 @@ namespace bgfx
 		  void* _ptr
 		, void* _userData
 		);
+
+	/// Function to execute on the bgfx render thread.
+	///
+	/// @param[in] _userData User data pointer passed to postExternalTask.
+	///
+	typedef void (*ExternalTaskFn)(void* _userData);
+
+	/// External task execution order relative to a frame's resource commands.
+	struct ExternalTaskOrder
+	{
+		enum Enum
+		{
+			Pre,   //!< Before GPU submit, in order with resource-creation commands (e.g. createTexture).
+			Post,  //!< After GPU submit, in order with resource-destruction commands (e.g. destroyTexture).
+
+			Count
+		};
+	};
+
+	/// Post a task to be executed on the bgfx render thread, in submission
+	/// order relative to the frame's resource commands. The task is queued as a
+	/// command in the chosen stream: ExternalTaskOrder::Pre runs before the
+	/// frame's GPU submit, in order with resource-creation commands (e.g.
+	/// createTexture); ExternalTaskOrder::Post runs after submit, in order with
+	/// resource-destruction commands (e.g. destroyTexture). The render context
+	/// is current while the task runs. After _fn returns, _releaseFn (if
+	/// non-NULL) is called as _releaseFn(_userData, NULL) to release user
+	/// resources. Serialized with other bgfx API calls via the resource API
+	/// lock; when posted from a single thread, tasks execute in call order
+	/// relative to resource commands.
+	///
+	/// @param[in] _fn        Function to call on the render thread.
+	/// @param[in] _userData  Passed to _fn and optionally to _releaseFn.
+	/// @param[in] _releaseFn Optional release callback (same signature as ReleaseFn).
+	/// @param[in] _order     When the task runs relative to the frame (default Pre).
+	///
+	void postExternalTask(ExternalTaskFn _fn, void* _userData, ReleaseFn _releaseFn = NULL, ExternalTaskOrder::Enum _order = ExternalTaskOrder::Pre);
 
 	/// Pack vertex attribute into vertex stream format.
 	///
@@ -4036,6 +4074,20 @@ namespace bgfx
 		  FrameBufferHandle _handle
 		, const char* _filePath
 		);
+
+	/// Set up the calling thread as the bgfx render thread.
+	///
+	/// Marks the calling thread as the render thread (rather than the API
+	/// thread) so render-thread-only APIs may be safely called from it, such as
+	/// `bgfx::overrideInternal` and external tasks posted via
+	/// `bgfx::postExternalTask`. Call once on the render thread before entering
+	/// its `bgfx::renderFrame` loop. The internal render thread created by
+	/// `bgfx::init` calls this automatically.
+	///
+	/// @returns `true` if the thread was set up successfully, `false`
+	///   otherwise. On failure the caller should not enter the render loop.
+	///
+	bool setupThread();
 
 	/// Render frame. Executes the actual GPU rendering work for one frame.
 	///
